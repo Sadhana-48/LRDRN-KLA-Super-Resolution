@@ -21,19 +21,18 @@ st.set_page_config(
 # ============================================================
 # HEADER
 # ============================================================
-
 st.title("🔬 LRDRN Image Restoration")
 
 st.markdown(
     """
-    **Lightweight Residual Dense Restoration Network (LRDRN)**
+    ### KLA Grayscale Image Super-Resolution
 
-    Restore a low-resolution grayscale image from **128 × 128**
-    to **256 × 256** using the trained LRDRN model.
+    Restore low-resolution grayscale images from **128 × 128**
+    to **256 × 256** using a trained **Lightweight Residual
+    Dense Restoration Network (LRDRN)**.
     """
 )
-
-
+st.success("✅ LRDRN model is ready for image restoration")
 # ============================================================
 # DEVICE
 # ============================================================
@@ -100,23 +99,39 @@ st.sidebar.write(f"**Device:** {device}")
 
 st.sidebar.divider()
 
-st.sidebar.header("🏆 Model Benchmark")
+# ============================================================
+# MODEL PERFORMANCE
+# ============================================================
+
+st.sidebar.header("🏆 Model Performance")
+
+col1, col2 = st.sidebar.columns(2)
+
+with col1:
+    st.metric(
+        "PSNR",
+        "26.7967 dB"
+    )
+
+with col2:
+    st.metric(
+        "SSIM",
+        "0.6811"
+    )
 
 st.sidebar.metric(
-    "PSNR",
-    "26.7967 dB"
+    "Super-Resolution Scale",
+    "2×"
 )
 
 st.sidebar.metric(
-    "SSIM",
-    "0.6811"
+    "Parameters",
+    "751,873"
 )
 
 st.sidebar.caption(
     "Benchmark values obtained during model evaluation."
 )
-
-
 # ============================================================
 # UPLOAD
 # ============================================================
@@ -192,6 +207,17 @@ if uploaded_file is not None:
             .cpu()
             .numpy()
         )
+# ----------------------------------------------------
+# BICUBIC BASELINE
+# ----------------------------------------------------
+
+bicubic_array = np.asarray(
+    image_128.resize(
+        (256, 256),
+        Image.Resampling.BICUBIC
+    ),
+    dtype=np.float32
+) / 255.0
 
         # ----------------------------------------------------
         # DISPLAY
@@ -199,7 +225,46 @@ if uploaded_file is not None:
 
         st.header("🖼️ Restoration Result")
 
-        col1, col2 = st.columns(2)
+        # ----------------------------------------------------
+# IMAGE COMPARISON
+# ----------------------------------------------------
+
+st.header("🖼️ Image Comparison")
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+
+    st.subheader("Input")
+
+    st.image(
+        input_array,
+        caption="128 × 128",
+        clamp=True,
+        use_container_width=True
+    )
+
+with col2:
+
+    st.subheader("Bicubic")
+
+    st.image(
+        bicubic_array,
+        caption="256 × 256",
+        clamp=True,
+        use_container_width=True
+    )
+
+with col3:
+
+    st.subheader("LRDRN")
+
+    st.image(
+        output_array,
+        caption="256 × 256 Restored",
+        clamp=True,
+        use_container_width=True
+    )
 
         with col1:
 
@@ -246,7 +311,25 @@ if uploaded_file is not None:
             f"{output_array.min():.3f} – "
             f"{output_array.max():.3f}"
         )
+# ----------------------------------------------------
+# PROCESSING INFORMATION
+# ----------------------------------------------------
 
+st.subheader("⚙️ Processing Information")
+
+p1, p2 = st.columns(2)
+
+with p1:
+    st.metric(
+        "Input Resolution",
+        "128 × 128"
+    )
+
+with p2:
+    st.metric(
+        "Output Resolution",
+        "256 × 256"
+    )
         # ----------------------------------------------------
         # DOWNLOAD
         # ----------------------------------------------------
