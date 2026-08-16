@@ -3,12 +3,13 @@ import torch
 import numpy as np
 from PIL import Image
 import io
+import time
 
 from model import LRDRN
 
 
 # ============================================================
-# PAGE CONFIG
+# PAGE CONFIGURATION
 # ============================================================
 
 st.set_page_config(
@@ -21,6 +22,7 @@ st.set_page_config(
 # ============================================================
 # HEADER
 # ============================================================
+
 st.title("🔬 LRDRN Image Restoration")
 
 st.markdown(
@@ -32,7 +34,8 @@ st.markdown(
     Dense Restoration Network (LRDRN)**.
     """
 )
-st.success("✅ LRDRN model is ready for image restoration")
+
+
 # ============================================================
 # DEVICE
 # ============================================================
@@ -56,12 +59,21 @@ def load_model():
         map_location=device
     )
 
-    if "model_state_dict" in checkpoint:
+    # Support both checkpoint formats:
+    # 1. {"model_state_dict": ...}
+    # 2. direct state_dict
+
+    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+
         model.load_state_dict(
             checkpoint["model_state_dict"]
         )
+
     else:
-        model.load_state_dict(checkpoint)
+
+        model.load_state_dict(
+            checkpoint
+        )
 
     model.eval()
 
@@ -73,13 +85,17 @@ try:
     model = load_model()
 
     st.success(
-        "✅ Trained LRDRN model loaded successfully"
+        "✅ LRDRN model is ready for image restoration"
     )
 
 except Exception as e:
 
-    st.error("❌ Model could not be loaded")
+    st.error(
+        "❌ Could not load the LRDRN model."
+    )
+
     st.exception(e)
+
     st.stop()
 
 
@@ -99,8 +115,9 @@ st.sidebar.write(f"**Device:** {device}")
 
 st.sidebar.divider()
 
+
 # ============================================================
-# MODEL PERFORMANCE
+# SIDEBAR — MODEL PERFORMANCE
 # ============================================================
 
 st.sidebar.header("🏆 Model Performance")
@@ -108,12 +125,14 @@ st.sidebar.header("🏆 Model Performance")
 col1, col2 = st.sidebar.columns(2)
 
 with col1:
+
     st.metric(
         "PSNR",
         "26.7967 dB"
     )
 
 with col2:
+
     st.metric(
         "SSIM",
         "0.6811"
@@ -130,10 +149,12 @@ st.sidebar.metric(
 )
 
 st.sidebar.caption(
-    "Benchmark values obtained during model evaluation."
+    "PSNR and SSIM are benchmark results obtained during model evaluation."
 )
+
+
 # ============================================================
-# UPLOAD
+# UPLOAD IMAGE
 # ============================================================
 
 st.header("📤 Upload Image")
@@ -145,7 +166,7 @@ uploaded_file = st.file_uploader(
 
 
 # ============================================================
-# RESTORATION
+# IMAGE PROCESSING
 # ============================================================
 
 if uploaded_file is not None:
@@ -160,14 +181,20 @@ if uploaded_file is not None:
             uploaded_file
         ).convert("L")
 
+
         # ----------------------------------------------------
-        # RESIZE
+        # RESIZE INPUT TO 128 × 128
         # ----------------------------------------------------
 
         image_128 = image.resize(
             (128, 128),
             Image.Resampling.BICUBIC
         )
+
+
+        # ----------------------------------------------------
+        # CONVERT IMAGE TO NUMPY
+        # ----------------------------------------------------
 
         input_array = (
             np.asarray(
@@ -176,8 +203,9 @@ if uploaded_file is not None:
             ) / 255.0
         )
 
+
         # ----------------------------------------------------
-        # MODEL INPUT
+        # CONVERT TO PYTORCH TENSOR
         # ----------------------------------------------------
 
         input_tensor = torch.from_numpy(
@@ -186,9 +214,12 @@ if uploaded_file is not None:
 
         input_tensor = input_tensor.to(device)
 
+
         # ----------------------------------------------------
-        # RESTORE
+        # LRDRN RESTORATION
         # ----------------------------------------------------
+
+        start_time = time.perf_counter()
 
         with torch.no_grad():
 
@@ -202,69 +233,54 @@ if uploaded_file is not None:
                 1
             )
 
+        end_time = time.perf_counter()
+
+
+        # ----------------------------------------------------
+        # CALCULATE PROCESSING TIME
+        # ----------------------------------------------------
+
+        processing_time = (
+            end_time - start_time
+        )
+
+
+        # ----------------------------------------------------
+        # CONVERT LRDRN OUTPUT TO NUMPY
+        # ----------------------------------------------------
+
         output_array = (
             restored[0, 0]
             .cpu()
             .numpy()
         )
-# ----------------------------------------------------
-# BICUBIC BASELINE
-# ----------------------------------------------------
 
-bicubic_array = np.asarray(
-    image_128.resize(
-        (256, 256),
-        Image.Resampling.BICUBIC
-    ),
-    dtype=np.float32
-) / 255.0
 
         # ----------------------------------------------------
-        # DISPLAY
+        # BICUBIC BASELINE
         # ----------------------------------------------------
 
-        st.header("🖼️ Restoration Result")
+        bicubic_array = np.asarray(
+            image_128.resize(
+                (256, 256),
+                Image.Resampling.BICUBIC
+            ),
+            dtype=np.float32
+        ) / 255.0
+
+
+        # ====================================================
+        # IMAGE COMPARISON
+        # ====================================================
+
+        st.header("🖼️ Image Comparison")
+
+        col1, col2, col3 = st.columns(3)
+
 
         # ----------------------------------------------------
-# IMAGE COMPARISON
-# ----------------------------------------------------
-
-st.header("🖼️ Image Comparison")
-
-col1, col2, col3 = st.columns(3)
-
-with col1:
-
-    st.subheader("Input")
-
-    st.image(
-        input_array,
-        caption="128 × 128",
-        clamp=True,
-        use_container_width=True
-    )
-
-with col2:
-
-    st.subheader("Bicubic")
-
-    st.image(
-        bicubic_array,
-        caption="256 × 256",
-        clamp=True,
-        use_container_width=True
-    )
-
-with col3:
-
-    st.subheader("LRDRN")
-
-    st.image(
-        output_array,
-        caption="256 × 256 Restored",
-        clamp=True,
-        use_container_width=True
-    )
+        # INPUT
+        # ----------------------------------------------------
 
         with col1:
 
@@ -277,62 +293,105 @@ with col3:
                 use_container_width=True
             )
 
+
+        # ----------------------------------------------------
+        # BICUBIC
+        # ----------------------------------------------------
+
         with col2:
 
-            st.subheader("LRDRN Restored")
+            st.subheader("Bicubic")
 
             st.image(
-                output_array,
-                caption="256 × 256 Restored Output",
+                bicubic_array,
+                caption="256 × 256 Bicubic",
                 clamp=True,
                 use_container_width=True
             )
 
+
         # ----------------------------------------------------
+        # LRDRN
+        # ----------------------------------------------------
+
+        with col3:
+
+            st.subheader("LRDRN")
+
+            st.image(
+                output_array,
+                caption="256 × 256 Restored",
+                clamp=True,
+                use_container_width=True
+            )
+
+
+        # ====================================================
         # OUTPUT INFORMATION
-        # ----------------------------------------------------
+        # ====================================================
 
         st.header("📋 Output Information")
 
         c1, c2, c3 = st.columns(3)
 
-        c1.metric(
-            "Height",
-            output_array.shape[0]
-        )
+        with c1:
 
-        c2.metric(
-            "Width",
-            output_array.shape[1]
-        )
+            st.metric(
+                "Height",
+                output_array.shape[0]
+            )
 
-        c3.metric(
-            "Pixel Range",
-            f"{output_array.min():.3f} – "
-            f"{output_array.max():.3f}"
-        )
-# ----------------------------------------------------
-# PROCESSING INFORMATION
-# ----------------------------------------------------
+        with c2:
 
-st.subheader("⚙️ Processing Information")
+            st.metric(
+                "Width",
+                output_array.shape[1]
+            )
 
-p1, p2 = st.columns(2)
+        with c3:
 
-with p1:
-    st.metric(
-        "Input Resolution",
-        "128 × 128"
-    )
+            st.metric(
+                "Pixel Range",
+                f"{output_array.min():.3f} – "
+                f"{output_array.max():.3f}"
+            )
 
-with p2:
-    st.metric(
-        "Output Resolution",
-        "256 × 256"
-    )
-        # ----------------------------------------------------
-        # DOWNLOAD
-        # ----------------------------------------------------
+
+        # ====================================================
+        # PROCESSING INFORMATION
+        # ====================================================
+
+        st.subheader("⚙️ Processing Information")
+
+        p1, p2, p3 = st.columns(3)
+
+        with p1:
+
+            st.metric(
+                "Input Resolution",
+                "128 × 128"
+            )
+
+        with p2:
+
+            st.metric(
+                "Output Resolution",
+                "256 × 256"
+            )
+
+        with p3:
+
+            st.metric(
+                "LRDRN Processing Time",
+                f"{processing_time:.3f} sec"
+            )
+
+
+        # ====================================================
+        # DOWNLOAD RESTORED IMAGE
+        # ====================================================
+
+        st.header("⬇️ Download Result")
 
         output_uint8 = (
             output_array * 255
@@ -343,16 +402,20 @@ with p2:
             np.uint8
         )
 
+
         output_image = Image.fromarray(
             output_uint8
         )
 
+
         buffer = io.BytesIO()
+
 
         output_image.save(
             buffer,
             format="PNG"
         )
+
 
         st.download_button(
             label="⬇️ Download Restored Image",
@@ -361,21 +424,27 @@ with p2:
             mime="image/png"
         )
 
-        # ----------------------------------------------------
-        # IMPORTANT NOTE
-        # ----------------------------------------------------
+
+        # ====================================================
+        # PERFORMANCE NOTE
+        # ====================================================
 
         st.info(
-            "PSNR and SSIM shown in the sidebar are the "
-            "model's benchmark results. They are not calculated "
-            "for the uploaded image because a matching ground-truth "
-            "image was not provided."
+            "PSNR and SSIM shown in the sidebar are benchmark "
+            "results obtained during model evaluation. "
+            "They are not calculated for the uploaded image "
+            "because a matching ground-truth image was not provided."
         )
+
+
+    # ========================================================
+    # ERROR HANDLING
+    # ========================================================
 
     except Exception as e:
 
         st.error(
-            "❌ Error while processing the image."
+            "❌ Error while processing the uploaded image."
         )
 
         st.exception(e)
@@ -389,24 +458,78 @@ st.divider()
 
 st.header("📚 About the Project")
 
-st.markdown(
-    """
-    This project uses a **Lightweight Residual Dense Restoration
-    Network (LRDRN)** for grayscale image super-resolution.
+with st.expander("🧠 About LRDRN"):
 
-    **Dataset**
-    - Training samples: 2,560
-    - Validation samples: 640
-    - Test images: 400
+    st.write(
+        """
+        LRDRN (Lightweight Residual Dense Restoration Network)
+        is used in this project for grayscale image
+        super-resolution.
 
-    **Model**
-    - Parameters: 751,873
-    - Best epoch: 38
-    - Input resolution: 128 × 128
-    - Output resolution: 256 × 256
+        The network receives a 128 × 128 grayscale image
+        and produces a 256 × 256 restored image.
+        """
+    )
 
-    **Evaluation**
-    - PSNR: 26.7967 dB
-    - SSIM: 0.6811
-    """
+
+with st.expander("📊 Model Performance"):
+
+    st.write(
+        """
+        **Improved LRDRN benchmark results**
+
+        PSNR: **26.7967 dB**
+
+        SSIM: **0.6811**
+
+        Best Epoch: **38**
+        """
+    )
+
+
+with st.expander("📁 Dataset"):
+
+    st.write(
+        """
+        Training images: **2,560**
+
+        Validation images: **640**
+
+        Test images: **400**
+
+        Image type: **Grayscale**
+        """
+    )
+
+
+with st.expander("⚙️ Methodology"):
+
+    st.write(
+        """
+        1. Upload a grayscale image.
+
+        2. The image is converted to grayscale.
+
+        3. The input is resized to 128 × 128.
+
+        4. The trained LRDRN model performs restoration.
+
+        5. The output is generated at 256 × 256.
+
+        6. Bicubic interpolation is also generated as a
+           baseline for visual comparison.
+
+        7. The LRDRN restored image can be downloaded as PNG.
+        """
+    )
+
+
+# ============================================================
+# FOOTER
+# ============================================================
+
+st.divider()
+
+st.caption(
+    "LRDRN Image Restoration Dashboard | KLA Dataset"
 )
