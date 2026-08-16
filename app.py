@@ -30,8 +30,8 @@ st.markdown(
     ### KLA Grayscale Image Super-Resolution
 
     Restore low-resolution grayscale images from **128 × 128**
-    to **256 × 256** using a trained **Lightweight Residual
-    Dense Restoration Network (LRDRN)**.
+    to **256 × 256** using a trained
+    **Lightweight Residual Dense Restoration Network (LRDRN)**.
     """
 )
 
@@ -59,21 +59,51 @@ def load_model():
         map_location=device
     )
 
-    # Support both checkpoint formats:
-    # 1. {"model_state_dict": ...}
-    # 2. direct state_dict
+    # --------------------------------------------------------
+    # Support different checkpoint formats
+    # --------------------------------------------------------
 
-    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+    if isinstance(checkpoint, dict):
 
-        model.load_state_dict(
-            checkpoint["model_state_dict"]
-        )
+        if "model_state_dict" in checkpoint:
+
+            state_dict = checkpoint["model_state_dict"]
+
+        elif "state_dict" in checkpoint:
+
+            state_dict = checkpoint["state_dict"]
+
+        else:
+
+            state_dict = checkpoint
 
     else:
 
-        model.load_state_dict(
-            checkpoint
-        )
+        state_dict = checkpoint
+
+
+    # --------------------------------------------------------
+    # Remove "module." prefix if present
+    # --------------------------------------------------------
+
+    cleaned_state_dict = {}
+
+    for key, value in state_dict.items():
+
+        if key.startswith("module."):
+
+            new_key = key[7:]
+
+        else:
+
+            new_key = key
+
+        cleaned_state_dict[new_key] = value
+
+
+    model.load_state_dict(
+        cleaned_state_dict
+    )
 
     model.eval()
 
@@ -122,16 +152,16 @@ st.sidebar.divider()
 
 st.sidebar.header("🏆 Model Performance")
 
-col1, col2 = st.sidebar.columns(2)
+metric_col1, metric_col2 = st.sidebar.columns(2)
 
-with col1:
+with metric_col1:
 
     st.metric(
         "PSNR",
         "26.7967 dB"
     )
 
-with col2:
+with metric_col2:
 
     st.metric(
         "SSIM",
@@ -149,7 +179,8 @@ st.sidebar.metric(
 )
 
 st.sidebar.caption(
-    "PSNR and SSIM are benchmark results obtained during model evaluation."
+    "PSNR and SSIM are benchmark results obtained "
+    "during model evaluation."
 )
 
 
@@ -160,8 +191,13 @@ st.sidebar.caption(
 st.header("📤 Upload Image")
 
 uploaded_file = st.file_uploader(
-    "Upload a grayscale PNG or JPG image",
-    type=["png", "jpg", "jpeg"]
+    "Upload a grayscale PNG, JPG, JPEG, or NPY file",
+    type=[
+        "png",
+        "jpg",
+        "jpeg",
+        "npy"
+    ]
 )
 
 
@@ -173,18 +209,164 @@ if uploaded_file is not None:
 
     try:
 
-        # ----------------------------------------------------
-        # READ IMAGE
-        # ----------------------------------------------------
-
-        image = Image.open(
-            uploaded_file
-        ).convert("L")
+        file_name = uploaded_file.name.lower()
 
 
-        # ----------------------------------------------------
+        # ====================================================
+        # READ NPY FILE
+        # ====================================================
+
+        if file_name.endswith(".npy"):
+
+            st.info(
+                "📁 NumPy array detected. Reading NPY file..."
+            )
+
+            # ------------------------------------------------
+            # Load NPY
+            # ------------------------------------------------
+
+            raw_array = np.load(
+                uploaded_file
+            )
+
+            # ------------------------------------------------
+            # Remove unnecessary dimensions
+            # ------------------------------------------------
+
+            raw_array = np.squeeze(
+                raw_array
+            )
+
+            # ------------------------------------------------
+            # Check dimensions
+            # ------------------------------------------------
+
+            if raw_array.ndim != 2:
+
+                st.error(
+                    f"❌ Expected a 2D grayscale array, "
+                    f"but received shape {raw_array.shape}."
+                )
+
+                st.stop()
+
+
+            # ------------------------------------------------
+            # Convert to float32
+            # ------------------------------------------------
+
+            input_array = raw_array.astype(
+                np.float32
+            )
+
+
+            # ------------------------------------------------
+            # Get original NPY information
+            # ------------------------------------------------
+
+            original_shape = input_array.shape
+
+            original_min = float(
+                input_array.min()
+            )
+
+            original_max = float(
+                input_array.max()
+            )
+
+
+            # ------------------------------------------------
+            # Normalize NPY values
+            # ------------------------------------------------
+
+            if original_max > 1.0:
+
+                if original_max <= 255.0:
+
+                    input_array = (
+                        input_array / 255.0
+                    )
+
+                else:
+
+                    min_value = input_array.min()
+                    max_value = input_array.max()
+
+                    if max_value > min_value:
+
+                        input_array = (
+                            input_array - min_value
+                        ) / (
+                            max_value - min_value
+                        )
+
+                    else:
+
+                        input_array = np.zeros_like(
+                            input_array
+                        )
+
+
+            input_array = np.clip(
+                input_array,
+                0.0,
+                1.0
+            )
+
+
+            # ------------------------------------------------
+            # Display NPY information
+            # ------------------------------------------------
+
+            st.write(
+                f"**NPY shape:** {original_shape}"
+            )
+
+            st.write(
+                f"**NPY value range:** "
+                f"{original_min:.6f} – "
+                f"{original_max:.6f}"
+            )
+
+
+            # ------------------------------------------------
+            # Convert NPY to PIL image
+            # ------------------------------------------------
+
+            image = Image.fromarray(
+                (
+                    input_array * 255.0
+                ).clip(
+                    0,
+                    255
+                ).astype(
+                    np.uint8
+                )
+            )
+
+
+        # ====================================================
+        # READ PNG / JPG / JPEG
+        # ====================================================
+
+        else:
+
+            image = Image.open(
+                uploaded_file
+            ).convert("L")
+
+            input_array = (
+                np.asarray(
+                    image,
+                    dtype=np.float32
+                ) / 255.0
+            )
+
+
+        # ====================================================
         # RESIZE INPUT TO 128 × 128
-        # ----------------------------------------------------
+        # ====================================================
 
         image_128 = image.resize(
             (128, 128),
@@ -192,9 +374,9 @@ if uploaded_file is not None:
         )
 
 
-        # ----------------------------------------------------
-        # CONVERT IMAGE TO NUMPY
-        # ----------------------------------------------------
+        # ====================================================
+        # FINAL 128 × 128 INPUT ARRAY
+        # ====================================================
 
         input_array = (
             np.asarray(
@@ -204,20 +386,22 @@ if uploaded_file is not None:
         )
 
 
-        # ----------------------------------------------------
+        # ====================================================
         # CONVERT TO PYTORCH TENSOR
-        # ----------------------------------------------------
+        # ====================================================
 
         input_tensor = torch.from_numpy(
             input_array
         ).unsqueeze(0).unsqueeze(0)
 
-        input_tensor = input_tensor.to(device)
+        input_tensor = input_tensor.to(
+            device
+        )
 
 
-        # ----------------------------------------------------
+        # ====================================================
         # LRDRN RESTORATION
-        # ----------------------------------------------------
+        # ====================================================
 
         start_time = time.perf_counter()
 
@@ -236,18 +420,18 @@ if uploaded_file is not None:
         end_time = time.perf_counter()
 
 
-        # ----------------------------------------------------
-        # CALCULATE PROCESSING TIME
-        # ----------------------------------------------------
+        # ====================================================
+        # PROCESSING TIME
+        # ====================================================
 
         processing_time = (
             end_time - start_time
         )
 
 
-        # ----------------------------------------------------
+        # ====================================================
         # CONVERT LRDRN OUTPUT TO NUMPY
-        # ----------------------------------------------------
+        # ====================================================
 
         output_array = (
             restored[0, 0]
@@ -256,9 +440,9 @@ if uploaded_file is not None:
         )
 
 
-        # ----------------------------------------------------
+        # ====================================================
         # BICUBIC BASELINE
-        # ----------------------------------------------------
+        # ====================================================
 
         bicubic_array = np.asarray(
             image_128.resize(
@@ -273,7 +457,9 @@ if uploaded_file is not None:
         # IMAGE COMPARISON
         # ====================================================
 
-        st.header("🖼️ Image Comparison")
+        st.header(
+            "🖼️ Image Comparison"
+        )
 
         col1, col2, col3 = st.columns(3)
 
@@ -284,7 +470,9 @@ if uploaded_file is not None:
 
         with col1:
 
-            st.subheader("Input")
+            st.subheader(
+                "Input"
+            )
 
             st.image(
                 input_array,
@@ -300,7 +488,9 @@ if uploaded_file is not None:
 
         with col2:
 
-            st.subheader("Bicubic")
+            st.subheader(
+                "Bicubic"
+            )
 
             st.image(
                 bicubic_array,
@@ -316,7 +506,9 @@ if uploaded_file is not None:
 
         with col3:
 
-            st.subheader("LRDRN")
+            st.subheader(
+                "LRDRN"
+            )
 
             st.image(
                 output_array,
@@ -330,9 +522,12 @@ if uploaded_file is not None:
         # OUTPUT INFORMATION
         # ====================================================
 
-        st.header("📋 Output Information")
+        st.header(
+            "📋 Output Information"
+        )
 
         c1, c2, c3 = st.columns(3)
+
 
         with c1:
 
@@ -341,12 +536,14 @@ if uploaded_file is not None:
                 output_array.shape[0]
             )
 
+
         with c2:
 
             st.metric(
                 "Width",
                 output_array.shape[1]
             )
+
 
         with c3:
 
@@ -361,9 +558,12 @@ if uploaded_file is not None:
         # PROCESSING INFORMATION
         # ====================================================
 
-        st.subheader("⚙️ Processing Information")
+        st.subheader(
+            "⚙️ Processing Information"
+        )
 
         p1, p2, p3 = st.columns(3)
+
 
         with p1:
 
@@ -372,12 +572,14 @@ if uploaded_file is not None:
                 "128 × 128"
             )
 
+
         with p2:
 
             st.metric(
                 "Output Resolution",
                 "256 × 256"
             )
+
 
         with p3:
 
@@ -388,13 +590,20 @@ if uploaded_file is not None:
 
 
         # ====================================================
-        # DOWNLOAD RESTORED IMAGE
+        # DOWNLOAD SECTION
         # ====================================================
 
-        st.header("⬇️ Download Result")
+        st.header(
+            "⬇️ Download Result"
+        )
+
+
+        # ----------------------------------------------------
+        # PNG DOWNLOAD
+        # ----------------------------------------------------
 
         output_uint8 = (
-            output_array * 255
+            output_array * 255.0
         ).clip(
             0,
             255
@@ -408,20 +617,41 @@ if uploaded_file is not None:
         )
 
 
-        buffer = io.BytesIO()
+        png_buffer = io.BytesIO()
 
 
         output_image.save(
-            buffer,
+            png_buffer,
             format="PNG"
         )
 
 
         st.download_button(
-            label="⬇️ Download Restored Image",
-            data=buffer.getvalue(),
+            label="⬇️ Download Restored PNG",
+            data=png_buffer.getvalue(),
             file_name="LRDRN_restored.png",
             mime="image/png"
+        )
+
+
+        # ----------------------------------------------------
+        # NPY DOWNLOAD
+        # ----------------------------------------------------
+
+        npy_buffer = io.BytesIO()
+
+
+        np.save(
+            npy_buffer,
+            output_array
+        )
+
+
+        st.download_button(
+            label="⬇️ Download Restored NPY",
+            data=npy_buffer.getvalue(),
+            file_name="LRDRN_restored.npy",
+            mime="application/octet-stream"
         )
 
 
@@ -444,7 +674,7 @@ if uploaded_file is not None:
     except Exception as e:
 
         st.error(
-            "❌ Error while processing the uploaded image."
+            "❌ Error while processing the uploaded file."
         )
 
         st.exception(e)
@@ -456,9 +686,18 @@ if uploaded_file is not None:
 
 st.divider()
 
-st.header("📚 About the Project")
+st.header(
+    "📚 About the Project"
+)
 
-with st.expander("🧠 About LRDRN"):
+
+# ------------------------------------------------------------
+# ABOUT LRDRN
+# ------------------------------------------------------------
+
+with st.expander(
+    "🧠 About LRDRN"
+):
 
     st.write(
         """
@@ -472,7 +711,13 @@ with st.expander("🧠 About LRDRN"):
     )
 
 
-with st.expander("📊 Model Performance"):
+# ------------------------------------------------------------
+# MODEL PERFORMANCE
+# ------------------------------------------------------------
+
+with st.expander(
+    "📊 Model Performance"
+):
 
     st.write(
         """
@@ -487,7 +732,13 @@ with st.expander("📊 Model Performance"):
     )
 
 
-with st.expander("📁 Dataset"):
+# ------------------------------------------------------------
+# DATASET
+# ------------------------------------------------------------
+
+with st.expander(
+    "📁 Dataset"
+):
 
     st.write(
         """
@@ -502,13 +753,19 @@ with st.expander("📁 Dataset"):
     )
 
 
-with st.expander("⚙️ Methodology"):
+# ------------------------------------------------------------
+# METHODOLOGY
+# ------------------------------------------------------------
+
+with st.expander(
+    "⚙️ Methodology"
+):
 
     st.write(
         """
-        1. Upload a grayscale image.
+        1. Upload a grayscale PNG, JPG, JPEG, or NPY file.
 
-        2. The image is converted to grayscale.
+        2. The input is converted to grayscale.
 
         3. The input is resized to 128 × 128.
 
@@ -516,10 +773,10 @@ with st.expander("⚙️ Methodology"):
 
         5. The output is generated at 256 × 256.
 
-        6. Bicubic interpolation is also generated as a
-           baseline for visual comparison.
+        6. Bicubic interpolation is generated as a baseline.
 
-        7. The LRDRN restored image can be downloaded as PNG.
+        7. The LRDRN restored image can be downloaded
+           as PNG or NPY.
         """
     )
 
